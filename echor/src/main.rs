@@ -1,8 +1,8 @@
-use clap::{Command, Arg};
+use clap::{Command, Arg, ArgAction};
 
 fn main() {
     let matches = Command::new("echor")
-        .version("0.1.0")
+        .version(env!("CARGO_PKG_VERSION"))
         .author("Thomas Bollmeier <developer@thomas-bollmeier.de>")
         .about("Rust echo")
         .arg(
@@ -10,27 +10,30 @@ fn main() {
                 .value_name("TEXT")
                 .help("input text")
                 .required(true)
-                .min_values(1),
+                .action(ArgAction::Append)
         )
         .arg(
             Arg::new("omit_newline")
                 .short('n')
+                .long("no-newline")
                 .help("Do not print newline")
-                .takes_value(false),
+                .action(ArgAction::SetTrue),
         )
         .get_matches();
 
-    let mut text: String = "".to_string();
-    let mut texts = matches.values_of("text").unwrap();
+    let text = matches.get_many::<String>("text")
+        .unwrap_or_default()
+        .map(|v| v.to_string())
+        .collect::<Vec<String>>()
+        .join(" ");
     
-    while let Some(part) = texts.next() {
-        if !text.is_empty() {
-            text += " ";
-        }
-        text += part;
-    }
+    let omit_newline = if let Some(omit_nl) = matches.get_one::<bool>("omit_newline") {
+        *omit_nl
+    } else {
+        false
+    };
 
-    let ending = if matches.is_present("omit_newline") { 
+    let ending = if omit_newline { 
         ""
     } else {
         "\n"
