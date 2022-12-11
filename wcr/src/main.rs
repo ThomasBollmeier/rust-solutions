@@ -1,8 +1,7 @@
-use clap::Parser;
-use wcr::{run, Config, MyResult};
+use wcr::{run, MyResult};
 
 fn main() -> MyResult<()> {
     
-    run(&Config::parse())
+    run(&wcr::get_args())
 
 }

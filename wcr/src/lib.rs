@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use clap::{command, Parser, crate_authors, crate_version, ArgAction};
+use clap::{command, Parser, crate_authors, crate_version, ArgAction, ArgGroup};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -8,6 +8,10 @@ use clap::{command, Parser, crate_authors, crate_version, ArgAction};
     version = crate_version!(), 
     about = "Rust version of wc"
 )]
+#[command(group(
+    ArgGroup::new("mode")
+        .args(["bytes", "chars"])
+))]
 pub struct Config {
 
     #[arg(
@@ -53,6 +57,18 @@ pub struct Config {
 }
 
 pub type MyResult<T> = Result<T, Box<dyn Error>>;
+
+pub fn get_args() -> Config {
+    let mut config = Config::parse();
+
+    if [config.lines, config.words, config.bytes, config.chars].iter().all(|v|{ v == &false}) {
+        config.lines = true;
+        config.words = true;
+        config.bytes = true;
+    }
+
+    config
+}
 
 pub fn run(config: &Config) -> MyResult<()> {
 
