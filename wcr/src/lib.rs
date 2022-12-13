@@ -1,4 +1,4 @@
-use std::error::Error;
+use std::{error::Error, io::{BufRead, BufReader, self}, fs::File};
 
 use clap::{command, Parser, crate_authors, crate_version, ArgAction, ArgGroup};
 
@@ -58,6 +58,14 @@ pub struct Config {
 
 pub type MyResult<T> = Result<T, Box<dyn Error>>;
 
+#[derive(Debug, PartialEq)]
+pub struct FileInfo {
+    num_lines: usize,
+    num_words: usize,
+    num_bytes: usize,
+    num_chars: usize,
+}
+
 pub fn get_args() -> Config {
     let mut config = Config::parse();
 
@@ -72,7 +80,37 @@ pub fn get_args() -> Config {
 
 pub fn run(config: &Config) -> MyResult<()> {
 
-    println!("{:#?}", config);
+    for filename in &config.files {
+        match open(filename) {
+            Ok(file) => {
+                count(file)?;
+                ()
+            },
+            Err(error) => eprintln!("{}: {}", filename, error), 
+        }
+    }
 
     Ok(())
+}
+
+fn open(filename: &str) -> MyResult<Box<dyn BufRead>> {
+    match filename {
+        "-" => Ok(Box::new(BufReader::new(io::stdin()))),
+        _ => Ok(Box::new(BufReader::new(File::open(filename)?))),
+    }
+}
+
+fn count(mut _file: impl BufRead) -> MyResult<FileInfo> {
+    let num_lines = 0usize;
+    let num_words = 0usize;
+    let num_bytes = 0usize;
+    let num_chars = 0usize;
+
+    Ok(FileInfo { 
+        num_lines, 
+        num_words, 
+        num_bytes, 
+        num_chars,
+    })
+
 }
