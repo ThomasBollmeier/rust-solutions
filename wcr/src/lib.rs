@@ -83,8 +83,7 @@ pub fn run(config: &Config) -> MyResult<()> {
     for filename in &config.files {
         match open(filename) {
             Ok(file) => {
-                count(file)?;
-                ()
+                analyze_file(file, filename, config)?;
             },
             Err(error) => eprintln!("{}: {}", filename, error), 
         }
@@ -100,11 +99,47 @@ fn open(filename: &str) -> MyResult<Box<dyn BufRead>> {
     }
 }
 
-fn count(mut _file: impl BufRead) -> MyResult<FileInfo> {
-    let num_lines = 0usize;
-    let num_words = 0usize;
-    let num_bytes = 0usize;
-    let num_chars = 0usize;
+fn analyze_file(file: impl BufRead, filename: &str, config: &Config) -> MyResult<()> {
+    let file_info = count(file)?;
+    let mut info = String::new();
+
+    if config.lines {
+        info.push_str(&format!("{}\t", file_info.num_lines));
+    }
+    if config.words {
+        info.push_str(&format!("{}\t", file_info.num_words));
+    }
+    if config.bytes {
+        info.push_str(&format!("{}\t", file_info.num_bytes));
+    }
+    if config.chars {
+        info.push_str(&format!("{}\t", file_info.num_chars));
+    }
+    info.push_str(filename);
+
+    println!("{}", info);
+
+    Ok(())
+}
+
+fn count(mut file: impl BufRead) -> MyResult<FileInfo> {
+    let mut num_lines = 0usize;
+    let mut num_words = 0usize;
+    let mut num_bytes = 0usize;
+    let mut num_chars = 0usize;
+
+    let mut line = String::new();
+
+    while let Ok(bytes_cnt) = &file.read_line(&mut line) {
+        if bytes_cnt == &0 {
+            break;
+        }
+        num_lines += 1;
+        num_words += line.split_whitespace().count();
+        num_bytes += bytes_cnt;
+        num_chars += line.chars().count();
+        line.clear();
+    }
 
     Ok(FileInfo { 
         num_lines, 
@@ -112,5 +147,29 @@ fn count(mut _file: impl BufRead) -> MyResult<FileInfo> {
         num_bytes, 
         num_chars,
     })
+
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+    use crate::{FileInfo, count};
+
+    #[test]
+    fn test_count() {   
+        let text = "I don't want the world. I just want your half.\r\n";
+        let info = count(Cursor::new(text));
+
+        assert!(info.is_ok());
+
+        let expected = FileInfo {
+            num_lines: 1,
+            num_words: 10,
+            num_chars: 48,
+            num_bytes: 48,
+        };
+
+        assert_eq!(info.unwrap(), expected);
+    }
 
 }
