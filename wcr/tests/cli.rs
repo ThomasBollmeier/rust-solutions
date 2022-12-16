@@ -29,7 +29,7 @@ fn gen_bad_file() -> String {
 #[test]
 fn dies_chars_and_bytes() -> TestResult {
     Command::cargo_bin(PRG)?
-        .args(&["-m", "-c"])
+        .args(&["-c", "-m"])
         .assert()
         .failure()
         .stderr(predicate::str::contains(

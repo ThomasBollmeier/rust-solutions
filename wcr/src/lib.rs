@@ -10,7 +10,7 @@ use clap::{command, Parser, crate_authors, crate_version, ArgAction, ArgGroup};
 )]
 #[command(group(
     ArgGroup::new("mode")
-        .args(["bytes", "chars"])
+        .args(["chars","bytes"])
 ))]
 pub struct Config {
 
@@ -80,13 +80,37 @@ pub fn get_args() -> Config {
 
 pub fn run(config: &Config) -> MyResult<()> {
 
+    let mut num_files = 0;
+    let mut totals = FileInfo{
+        num_lines: 0,
+        num_words: 0,
+        num_bytes: 0,
+        num_chars: 0,
+    };
+
     for filename in &config.files {
         match open(filename) {
             Ok(file) => {
-                analyze_file(file, filename, config)?;
+                let file_info = count(file)?;
+                num_files += 1;
+                totals.num_lines += file_info.num_lines;
+                totals.num_words += file_info.num_words;
+                totals.num_bytes += file_info.num_bytes;
+                totals.num_chars += file_info.num_chars;
+                let message = compose_message(&file_info, config);
+                if filename != "-" {
+                    println!("{} {}", message, filename);
+                } else {
+                    println!("{}", message);
+                }
             },
             Err(error) => eprintln!("{}: {}", filename, error), 
         }
+    }
+
+    if num_files > 1 {
+        let message = compose_message(&totals, config);
+        println!("{} total", message);
     }
 
     Ok(())
@@ -99,27 +123,38 @@ fn open(filename: &str) -> MyResult<Box<dyn BufRead>> {
     }
 }
 
-fn analyze_file(file: impl BufRead, filename: &str, config: &Config) -> MyResult<()> {
-    let file_info = count(file)?;
-    let mut info = String::new();
+fn compose_message(file_info: &FileInfo, config: &Config) -> String {
+    let mut ret = " ".to_string();
+    let mut is_first = true;
 
     if config.lines {
-        info.push_str(&format!("{}\t", file_info.num_lines));
+        is_first = false;
+        ret.push_str(&format!("{:>7}", file_info.num_lines));
     }
     if config.words {
-        info.push_str(&format!("{}\t", file_info.num_words));
+        if !is_first {
+            ret.push_str(" ");
+        } else {
+            is_first = false;
+        }
+        ret.push_str(&format!("{:>7}", file_info.num_words));
     }
     if config.bytes {
-        info.push_str(&format!("{}\t", file_info.num_bytes));
+        if !is_first {
+            ret.push_str(" ");
+        } else {
+            is_first = false;
+        }
+        ret.push_str(&format!("{:>7}", file_info.num_bytes));
     }
     if config.chars {
-        info.push_str(&format!("{}\t", file_info.num_chars));
+        if !is_first {
+            ret.push_str(" ");
+        }
+        ret.push_str(&format!("{:>7}", file_info.num_chars));
     }
-    info.push_str(filename);
 
-    println!("{}", info);
-
-    Ok(())
+    ret
 }
 
 fn count(mut file: impl BufRead) -> MyResult<FileInfo> {
