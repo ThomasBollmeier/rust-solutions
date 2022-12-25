@@ -1,0 +1,20 @@
+[package]
+name = "findr"
+version = "0.1.0"
+edition = "2021"
+authors = ["Thomas Bollmeier"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+walkdir = "2"
+regex = "1"
+
+[dependencies.clap]
+version = "4"
+features = ["derive", "cargo"]
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "2"
+rand = "0.8"
