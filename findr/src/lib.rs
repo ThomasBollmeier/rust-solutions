@@ -2,6 +2,7 @@ use std::error::Error;
 
 use clap::{Parser, command, crate_authors, crate_version, ValueEnum};
 use regex::Regex;
+use walkdir::{WalkDir, DirEntry};
 
 pub type MyResult<T> = Result<T, Box<dyn Error>>;
 
@@ -55,11 +56,55 @@ pub fn get_args() -> Config {
 
 pub fn run(config: &Config) -> MyResult<()> {
 
-    println!("{:#?}", config);
+    for path in &config.paths {
+        for entry in WalkDir::new(path) {
+            match entry {
+                Err(e) => eprintln!("{}", e),
+                Ok(entry) => if matches_types(&entry, &config.entry_types) &&
+                    matches_patterns(&entry, &config.names) {
+                    println!("{}", entry.path().display())
+                },
+            }
+        }
+    }
     Ok(())
 }
 
+fn matches_patterns(entry: &DirEntry, regexs: &[Regex]) -> bool {
+    let name = entry.file_name().to_str();
+    match name {
+        None => false,
+        Some(name) => regexs.is_empty() || regexs.iter().any(|regex| { regex.is_match(name) }),
+    }
+}
+
+
+fn matches_types(entry: &DirEntry, entry_types: &[EntryType]) -> bool {
+    if entry_types.is_empty() {
+        true
+    } else {
+        match get_entry_type(entry) {
+            Some(entry_type) => entry_types.contains(&entry_type),
+            None => false
+        }
+    }
+}
+
+fn get_entry_type(entry: &DirEntry) -> Option<EntryType> {
+    let file_type = entry.file_type();
+
+    if file_type.is_file() {
+        Some(EntryType::File)
+    } else if file_type.is_dir() {
+        Some(EntryType::Dir)
+    } else if file_type.is_symlink() {
+        Some(EntryType::Link)
+    } else {
+        None
+    }
+}
+
+
 fn validate_regex(s: &str) -> Result<Regex, String> {
-    println!("Validating: {}", s);
     Regex::new(s).map_err(|_|{ format!("Invalid --name \"{}\"", s)})
 }
