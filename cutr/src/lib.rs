@@ -1,4 +1,6 @@
-use std::error::Error;
+use std::fs::File;
+use std::io::{BufReader, self};
+use std::{error::Error, io::BufRead};
 use std::ops::Range;
 use clap::{Parser, command, crate_authors, crate_version, ArgGroup};
 use regex::{Regex, Match};
@@ -67,9 +69,9 @@ struct ConfigArgs {
 
 #[derive(Debug)]
 pub struct Config {
-    _files: Vec<String>,
-    _delimiter: u8,
-    _extract: Extract,
+    files: Vec<String>,
+    delimiter: u8,
+    extract: Extract,
 }
 
 pub fn get_config() -> MyResult<Config> {
@@ -90,9 +92,9 @@ fn config_args_into_config(args: ConfigArgs) -> MyResult<Config> {
     }
 
     Ok(Config {
-        _files: args.files.clone(),
-        _delimiter: get_delimiter(&args)?,
-        _extract: get_extract(&args)? })
+        files: args.files.clone(),
+        delimiter: get_delimiter(&args)?,
+        extract: get_extract(&args)? })
 }
 
 fn get_delimiter(args: &ConfigArgs) -> MyResult<u8> {
@@ -116,14 +118,14 @@ fn get_extract(args: &ConfigArgs) -> MyResult<Extract> {
     } else if let Some(positions) = &args.char_positions {
         Ok(Extract::Chars(parse_pos(positions)?))
     } else {
-        Err(Box::<dyn Error>::from(format!("No positions were specified")))
+        Err(Box::<dyn Error>::from("No positions were specified".to_string()))
     }
 
 }
 
 fn parse_pos(range: &str) -> MyResult<PositionList> {
     range
-        .split(",")
+        .split(',')
         .map(interval_to_range)
         .collect()
 }
@@ -164,7 +166,7 @@ fn interval_to_range(interval: &str) -> MyResult<Range<usize>> {
 }
 
 fn parse_index(match_obj: &Match) -> MyResult<usize> {
-    match usize::from_str_radix(match_obj.as_str(), 10) {
+    match match_obj.as_str().parse::<usize>() {
         Ok(idx) => Ok(idx),
         Err(error) => Err(Box::<dyn Error>::from(format!("{}", error))),
     }
@@ -179,14 +181,124 @@ fn create_range_error(message: &str) -> MyResult<Range<usize>> {
 }
 
 pub fn run(config: Config) -> MyResult<()> {
-    println!("{:#?}", config);
+
+    for filename in &config.files {
+        match open(filename) {
+            Ok(mut file) => run_file(&mut file, &config),
+            Err(e) => eprintln!("{}: {}", filename, e),
+        }
+    }
+
     Ok(())
+}
+
+fn open(filename: &str) -> MyResult<Box<dyn BufRead>> {
+    match filename {
+        "-" => Ok(Box::new(BufReader::new(io::stdin()))),
+        _ => Ok(Box::new(BufReader::new(File::open(filename)?))),
+    }
+}
+
+fn run_file(file: &mut Box<dyn BufRead>, config: &Config) {
+    file.lines().flatten().for_each(|line| {
+        run_line(&line, config);
+    });
+}
+
+fn run_line(line: &str, config: &Config) {
+
+    let extracted = match &config.extract {
+        Extract::Chars(positions) => extract_chars(line, positions),
+        Extract::Bytes(positions) => extract_bytes(line, positions),
+        Extract::Fields(positions) => extract_fields(line, positions, config),
+    };
+
+    println!("{}", extracted);
+}
+
+fn extract_chars(line: &str, char_positions: &[Range<usize>]) -> String {
+
+    let chars: Vec<char> = line.chars().collect();
+
+    char_positions
+        .iter()
+        .map(|rng| { chars_in_range(&chars, rng) })
+        .collect::<Vec<String>>()
+        .join("")
+
+}
+
+fn chars_in_range(chars: &Vec<char>, range: &Range<usize>) -> String {
+    let l = chars.len();
+    let s = range.start;
+    let e = range.end;
+
+    if s < e && e <= l {
+        let mut ret = String::new();
+        for &ch in chars[s..e].iter() {
+            ret.push(ch);
+        }
+        ret
+    } else {
+        "".to_string()
+    }
+}
+
+fn extract_bytes(line: &str, byte_positions: &[Range<usize>]) -> String {
+
+    let bytes: Vec<u8> = line.bytes().collect();
+
+    byte_positions
+        .iter()
+        .map(|rng| { bytes_in_range(&bytes, rng) })
+        .collect::<Vec<String>>()
+        .join("")
+}
+
+fn bytes_in_range(bytes: &[u8], range: &Range<usize>) -> String {
+    let l = bytes.len();
+    let s = range.start;
+    let e = range.end;
+
+    if s < e && e <= l {
+        String::from_utf8_lossy(&bytes[s..e]).to_string()
+    } else {
+        "".to_string()
+    }
+}
+
+fn extract_fields(line: &str, field_positions: &[Range<usize>], config: &Config) -> String {
+
+    let delim = config.delimiter as char;
+    let fields: Vec<&str> = line.split(delim).collect();
+
+    let extracted: Vec<String> = field_positions
+        .iter()
+        .flat_map(|rng| { fields_in_range(&fields, rng) })
+        .collect();
+
+    let mut delim_str = String::new();
+    delim_str.push(delim);
+
+    extracted.join(&delim_str)
+}
+
+fn fields_in_range(fields: &[&str], range: &Range<usize>) -> Vec<String> {
+    let l = fields.len();
+    let s = range.start;
+    let e = range.end;
+
+    if s < e && e <= l {
+        fields[s..e].iter().map(|str| str.to_string()).collect()
+    } else {
+        vec![]
+    }
 }
 
 
 #[cfg(test)]
 mod unit_tests {
-    use super::parse_pos;
+    use super::{parse_pos, extract_chars, extract_bytes};
 
     #[test]
     fn test_parse_pos() {
@@ -313,6 +425,29 @@ mod unit_tests {
         let res = parse_pos("15,19-20");
         assert!(res.is_ok());
         assert_eq!(res.unwrap(), vec![14..15, 18..20]);
+    }
+
+    #[test]
+    fn test_extract_chars() {
+        assert_eq!(extract_chars("", &[0..1]), "".to_string());
+        assert_eq!(extract_chars("ábc", &[0..1]), "á".to_string());
+        assert_eq!(extract_chars("ábc", &[0..1, 2..3]), "ác".to_string());
+        assert_eq!(extract_chars("ábc", &[0..3]), "ábc".to_string());
+        assert_eq!(extract_chars("ábc", &[2..3, 1..2]), "cb".to_string());
+        assert_eq!(
+            extract_chars("ábc", &[0..1, 1..2, 4..5]),
+            "áb".to_string()
+        );
+    }
+
+    #[test]
+    fn test_extract_bytes() {
+        assert_eq!(extract_bytes("ábc", &[0..1]), "�".to_string());
+        assert_eq!(extract_bytes("ábc", &[0..2]), "á".to_string());
+        assert_eq!(extract_bytes("ábc", &[0..3]), "áb".to_string());
+        assert_eq!(extract_bytes("ábc", &[0..4]), "ábc".to_string());
+        assert_eq!(extract_bytes("ábc", &[3..4, 2..3]), "cb".to_string());
+        assert_eq!(extract_bytes("ábc", &[0..2, 5..6]), "á".to_string());
     }
 
 }
