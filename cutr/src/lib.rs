@@ -3,6 +3,7 @@ use std::io::{BufReader, self};
 use std::{error::Error, io::BufRead};
 use std::ops::Range;
 use clap::{Parser, command, crate_authors, crate_version, ArgGroup};
+use csv::StringRecord;
 use regex::{Regex, Match};
 
 pub type MyResult<T> = Result<T, Box<dyn Error>>;
@@ -200,9 +201,58 @@ fn open(filename: &str) -> MyResult<Box<dyn BufRead>> {
 }
 
 fn run_file(file: &mut Box<dyn BufRead>, config: &Config) {
-    file.lines().flatten().for_each(|line| {
-        run_line(&line, config);
-    });
+    if let Extract::Fields(positions) = &config.extract {
+        extract_fields_from_file(file, positions, config);
+    } else {
+        file.lines().flatten().for_each(|line| {
+            run_line(&line, config);
+        });
+    }
+}
+
+fn extract_fields_from_file(file: &mut Box<dyn BufRead>, positions: &Vec<Range<usize>>,
+    config: &Config) {
+
+    let mut delim_str = String::new();
+    delim_str.push(config.delimiter as char);
+
+    let mut reader = csv::ReaderBuilder::new()
+        .delimiter(config.delimiter)
+        .from_reader(file);
+
+    if let Ok(header) = reader.headers() {
+        let header_fields = extract_fields(header, positions);
+        println!("{}", header_fields.join(&delim_str));
+    }
+
+    for record in reader.records().flatten() {
+        let fields = extract_fields(&record, positions);
+        println!("{}", fields.join(&delim_str));
+    }
+
+}
+
+fn extract_fields(record: &StringRecord, field_positions: &[Range<usize>]) -> Vec<String> {
+
+    let extracted: Vec<String> = field_positions
+        .iter()
+        .flat_map(|rng| { fields_in_range(record, rng) })
+        .collect();
+
+    extracted
+}
+
+fn fields_in_range(record: &StringRecord, range: &Range<usize>) -> Vec<String> {
+
+    let mut ret: Vec<String> = vec![];
+
+    for i in range.start..range.end {
+        if let Some(field) = record.get(i) {
+            ret.push(field.to_string());
+        }
+    }
+
+    ret
 }
 
 fn run_line(line: &str, config: &Config) {
@@ -210,7 +260,7 @@ fn run_line(line: &str, config: &Config) {
     let extracted = match &config.extract {
         Extract::Chars(positions) => extract_chars(line, positions),
         Extract::Bytes(positions) => extract_bytes(line, positions),
-        Extract::Fields(positions) => extract_fields(line, positions, config),
+        _ => return,
     };
 
     println!("{}", extracted);
@@ -267,38 +317,11 @@ fn bytes_in_range(bytes: &[u8], range: &Range<usize>) -> String {
     }
 }
 
-fn extract_fields(line: &str, field_positions: &[Range<usize>], config: &Config) -> String {
-
-    let delim = config.delimiter as char;
-    let fields: Vec<&str> = line.split(delim).collect();
-
-    let extracted: Vec<String> = field_positions
-        .iter()
-        .flat_map(|rng| { fields_in_range(&fields, rng) })
-        .collect();
-
-    let mut delim_str = String::new();
-    delim_str.push(delim);
-
-    extracted.join(&delim_str)
-}
-
-fn fields_in_range(fields: &[&str], range: &Range<usize>) -> Vec<String> {
-    let l = fields.len();
-    let s = range.start;
-    let e = range.end;
-
-    if s < e && e <= l {
-        fields[s..e].iter().map(|str| str.to_string()).collect()
-    } else {
-        vec![]
-    }
-}
-
-
 #[cfg(test)]
 mod unit_tests {
-    use super::{parse_pos, extract_chars, extract_bytes};
+    use csv::StringRecord;
+
+    use super::{parse_pos, extract_chars, extract_bytes, extract_fields};
 
     #[test]
     fn test_parse_pos() {
@@ -448,6 +471,19 @@ mod unit_tests {
         assert_eq!(extract_bytes("ábc", &[0..4]), "ábc".to_string());
         assert_eq!(extract_bytes("ábc", &[3..4, 2..3]), "cb".to_string());
         assert_eq!(extract_bytes("ábc", &[0..2, 5..6]), "á".to_string());
+    }
+
+    #[test]
+    fn test_extract_fields() {
+        let rec = StringRecord::from(vec!["Captain", "Sham", "12345"]);
+        assert_eq!(extract_fields(&rec, &[0..1]), &["Captain"]);
+        assert_eq!(extract_fields(&rec, &[1..2]), &["Sham"]);
+        assert_eq!(
+            extract_fields(&rec, &[0..1, 2..3]),
+            &["Captain", "12345"]
+        );
+        assert_eq!(extract_fields(&rec, &[0..1, 3..4]), &["Captain"]);
+        assert_eq!(extract_fields(&rec, &[1..2, 0..1]), &["Sham", "Captain"]);
     }
 
 }
