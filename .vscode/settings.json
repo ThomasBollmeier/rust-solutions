@@ -7,7 +7,7 @@
     "editor.formatOnSave": true,
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.bracketPairColorization.enabled": false,
-    "editor.cursorSmoothCaretAnimation": true,
+    "editor.cursorSmoothCaretAnimation": "on",
     // terminal
     "terminal.integrated.defaultProfile.windows": "Command Prompt",
     "terminal.integrated.enableMultiLinePasteWarning": false,
