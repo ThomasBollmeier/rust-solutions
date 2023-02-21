@@ -1,3 +1,4 @@
-fn main() {
-    println!("Hello, world!");
+fn main() -> grepr::MyResult<()> {
+    grepr::run(&grepr::get_args())?;
+    Ok(())
 }
