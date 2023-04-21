@@ -1,7 +1,7 @@
 use std::error::Error;
 
 use clap::{Parser, command, crate_authors, crate_version, ArgAction};
-use regex::Regex;
+use regex::RegexBuilder;
 //use walkdir::{WalkDir, DirEntry};
 
 pub type MyResult<T> = Result<T, Box<dyn Error>>;
@@ -17,8 +17,9 @@ pub struct Config {
         value_name = "PATTERN",
         help = "Search pattern",
         num_args = 1,
+        value_parser = validate_regex,
     )]
-    pattern: Regex,
+    pattern: String,
 
     #[arg(
         value_name = "FILE",
@@ -27,6 +28,14 @@ pub struct Config {
         num_args = 1..,
     )]
     files: Vec<String>,
+
+    #[arg(
+        short,
+        long = "insensitive",
+        action = ArgAction::SetTrue,
+        help = "Case-insensitive"
+    )]
+    insensitive: bool,
 
     #[arg(
         short,
@@ -45,7 +54,7 @@ pub struct Config {
     count: bool,
 
     #[arg(
-        short,
+        short = 'v',
         long = "invert-match",
         action = ArgAction::SetTrue,
         help = "Invert match"
@@ -62,4 +71,11 @@ pub fn run(config: &Config) -> MyResult<()> {
     println!("{:#?}", config);
 
     Ok(())
+}
+
+fn validate_regex(pattern: &str) -> Result<String, String> {
+    match RegexBuilder::new(pattern).build() {
+        Ok(_regex) => Ok(pattern.to_string()),
+        Err(_err) => Err(format!("Invalid pattern \"{}\"", pattern)),
+    }
 }
