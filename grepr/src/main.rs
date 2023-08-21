@@ -1,4 +1,5 @@
 fn main() -> grepr::MyResult<()> {
-    grepr::run(&grepr::get_args())?;
+    let config = grepr::get_config()?;
+    grepr::run(&config)?;
     Ok(())
 }
