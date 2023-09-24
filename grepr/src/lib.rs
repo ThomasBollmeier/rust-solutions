@@ -113,17 +113,25 @@ pub fn get_config() -> MyResult<Config> {
 
 pub fn run(config: &Config) -> MyResult<()> {
 
-    for result in find_files(&config.files, config.recursive) {
+    let files = find_files(&config.files, config.recursive);
+    let many_files = files.len() > 1;
+
+    for result in files {
 
         match result {
             Ok(file_path) => {
                 match open(&file_path) {
-                    Ok(file) => {
+                    Ok(mut file) => {
                         let lines =
-                            find_lines(file, &config.pattern, config.invert_match)?;
-                        println!("{}: #lines = {}", file_path, lines.len());
+                            find_lines(&mut file, &config.pattern, config.invert_match)?;
+                        let file_path_opt = if many_files {
+                            Some(file_path.as_str())
+                        } else {
+                            None
+                        };
+                        print_result(&lines, file_path_opt, &config);
                     },
-                    Err(e) => eprintln!("{}", e),
+                    Err(e) => eprintln!("{}: {}", file_path, e),
                 };
             },
             Err(e) => eprintln!("{}", e),
@@ -152,9 +160,12 @@ fn find_files_in_path(file_path: &str, recursive: bool) -> Vec<MyResult<String>>
     let path = Path::new(file_path);
     let mut results = vec![];
 
-    if !path.exists() {
-        let error_message = format!("file {} does not exist", file_path);
-        return vec![Err(Box::new(MyError{ error_message }))];
+    match path.canonicalize() {
+        Ok(_) => {},
+        Err(error) => {
+            let error_message = format!("{}: {}", file_path, error);
+            return vec![Err(Box::new(MyError{ error_message }))];
+        }
     }
 
     if path.is_dir() {
@@ -194,22 +205,47 @@ fn open(file_path: &str) -> MyResult<Box<dyn BufRead>> {
 }
 
 fn find_lines(
-    file: impl BufRead,
+    file: &mut impl BufRead,
     pattern: &Regex,
     invert_match: bool) -> MyResult<Vec<String>>
 {
     let mut ret = vec![];
+    let mut buf = String::new();
 
-    for line in file.lines() {
-        let line = line?;
-        let matched = pattern.is_match(&line);
-
-        if matched != invert_match {
-            ret.push(line);
+    while let Ok(num_bytes) = file.read_line(&mut buf) {
+        if num_bytes > 0 {
+            let line = buf.to_owned();
+            let matched = pattern.is_match(&line);
+            if matched != invert_match {
+                ret.push(line);
+            }
+            buf.clear();
+        } else {
+            break;
         }
     }
 
     Ok(ret)
+}
+
+fn print_result(lines: &Vec<String>, file_path: Option<&str>, config: &Config) {
+    let many_files = file_path.is_some();
+
+    if !config.count {
+        for line in lines {
+            if !many_files {
+                print!("{}", line);
+            } else {
+                print!("{}:{}", file_path.unwrap(), line);
+            }
+        }
+    } else {
+        if !many_files {
+            println!("{}", lines.len());
+        } else {
+            println!("{}:{}", file_path.unwrap(), lines.len());
+        }
+    }
 }
 
 // --------------------------------------------------
@@ -274,12 +310,12 @@ mod tests {
 
         // The pattern _or_ should match the one line, "Lorem"
         let re1 = Regex::new("or").unwrap();
-        let matches = find_lines(Cursor::new(&text), &re1, false);
+        let matches = find_lines(&mut Cursor::new(&text), &re1, false);
         assert!(matches.is_ok());
         assert_eq!(matches.unwrap().len(), 1);
 
         // When inverted, the function should match the other two lines
-        let matches = find_lines(Cursor::new(&text), &re1, true);
+        let matches = find_lines(&mut Cursor::new(&text), &re1, true);
         assert!(matches.is_ok());
         assert_eq!(matches.unwrap().len(), 2);
 
@@ -290,12 +326,12 @@ mod tests {
             .unwrap();
 
         // The two lines "Lorem" and "DOLOR" should match
-        let matches = find_lines(Cursor::new(&text), &re2, false);
+        let matches = find_lines(&mut Cursor::new(&text), &re2, false);
         assert!(matches.is_ok());
         assert_eq!(matches.unwrap().len(), 2);
 
         // When inverted, the one remaining line should match
-        let matches = find_lines(Cursor::new(&text), &re2, true);
+        let matches = find_lines(&mut Cursor::new(&text), &re2, true);
         assert!(matches.is_ok());
         assert_eq!(matches.unwrap().len(), 1);
     }
