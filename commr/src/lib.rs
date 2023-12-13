@@ -1,4 +1,4 @@
-use std::{error::Error, fmt::Debug, io::{BufRead, BufReader, self}, fs::File};
+use std::{error::Error, fmt::Debug, io::{BufRead, BufReader, self}, fs::File, vec, cmp::Ordering};
 
 use clap::{command, Parser, crate_version, ArgAction};
 
@@ -97,11 +97,108 @@ pub fn run(config: &Config) -> MyResult<()> {
         return Err(Box::new(MyError {error_message}));
     }
 
-    let _file1 = open(file1)?;
-    let _file2 = open(file2)?;
-    println!("Opened {} and {}", file1, file2);
+    let lines1 = read_file_content(file1)?;
+    let lines2 = read_file_content(file2)?;
+
+    print_line_diffs(&lines1, &lines2, &config);
 
     Ok(())
+}
+
+fn print_line_diffs(lines1: &[String], lines2: &[String], config: &Config) {
+
+    let n1 = lines1.len();
+    let mut i1 = 0;
+    let n2 = lines2.len();
+    let mut i2 = 0;
+
+    while i1 < n1 || i2 < n2 {
+        if i1 >= n1 {
+            print_col2(&lines2[i2], config);
+            i2 += 1;
+            continue;
+        } else if i2 >= n2 {
+            print_col1(&lines1[i1], config);
+            i1 += 1;
+            continue;
+        }
+
+        let mut line1 = lines1[i1].to_string();
+        let mut line2 = lines2[i2].to_string();
+
+        if config.insensitive {
+            line1 = line1.to_lowercase();
+            line2 = line2.to_lowercase();
+        }
+
+        let order = line1.cmp(&line2);
+
+        match order {
+            Ordering::Less => {
+                print_col1(&line1, config);
+                i1 += 1;
+            }
+            Ordering::Greater => {
+                print_col2(&line2, config);
+                i2 += 1;
+            }
+            Ordering::Equal => {
+                print_col3(&line1, config);
+                i1 += 1;
+                i2 += 1;
+            }
+        }
+
+    }
+
+}
+
+fn print_col1(line: &str, config: &Config) {
+    if config.show_col1 {
+        println!("{}", line);
+    }
+}
+
+fn print_col2(line: &str, config: &Config) {
+    if !config.show_col2 {
+        return;
+    }
+
+    let mut tabs = "".to_string();
+    if config.show_col1 {
+        tabs.push_str(&config.delimiter);
+    }
+
+    println!("{}{}", tabs, line);
+}
+
+fn print_col3(line: &str, config: &Config) {
+    if !config.show_col3 {
+        return;
+    }
+
+    let mut tabs = "".to_string();
+    if config.show_col1 {
+        tabs.push_str(&config.delimiter);
+    }
+    if config.show_col2 {
+        tabs.push_str(&config.delimiter);
+    }
+
+    println!("{}{}", tabs, line);
+}
+
+fn read_file_content(filename:&str) -> MyResult<Vec<String>> {
+    let file = open(filename)?;
+    let lines = file.lines();
+    let mut result: Vec<String> = vec![];
+
+    for line in lines {
+        let line = line?;
+        result.push(line);
+    }
+
+    Ok(result)
 }
 
 fn open(filename: &str) -> MyResult<Box<dyn BufRead>> {
