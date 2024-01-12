@@ -44,7 +44,6 @@
         "*.md": "vscode.markdown.preview.editor",
         "*.svg": "svgPreviewer.customEditor"
     },
-    "workbench.editor.untitled.hint": "hidden",
     // Git settings
     "git.enableSmartCommit": true,
     "git.autofetch": true,
