@@ -5,7 +5,7 @@ fn main() {
         .and_then(|cli| Config::try_from(cli))
         .and_then(|config| config.run()) {
 
-        eprintln!("Error: {}", e);
+        eprintln!("{e}");
         std::process::exit(1);
     }
 }

@@ -1,6 +1,6 @@
-use std::collections::hash_map::VacantEntry;
 use std::error::Error;
 use std::fmt::Debug;
+use std::path::Path;
 use clap::Parser;
 use regex::Regex;
 
@@ -31,9 +31,8 @@ pub struct Cli {
         long = "seed",
         value_name = "SEED",
         help = "Random seed",
-        value_parser = clap::value_parser!(u64)
     )]
-    seed: Option<u64>,
+    seed: Option<String>,
 
     #[arg(
         short = 'i',
@@ -54,23 +53,40 @@ impl Cli {
 
 #[derive(Debug)]
 pub struct Config {
-    sources: Vec<String>,
-    pattern: Option<Regex>,
-    seed: Option<u64>,
+    _sources: Vec<String>,
+    _pattern: Option<Regex>,
+    _seed: Option<u64>,
 }
 
 impl Config {
     pub fn run(&self) -> MyResult<()> {
-        println!("Running fortune with config: {self:?}");
         Ok(())
     }
 }
+
+fn find_non_existing(files: &Vec<String>) -> Option<String> {
+    for file in files {
+        // Check if file or directory exists
+        if !Path::new(file).exists() {
+            return Some(file.to_string());
+        }
+    }
+
+    None
+}
+
 
 impl TryFrom<Cli> for Config {
     type Error = Box<dyn Error>;
 
     fn try_from(value: Cli) -> Result<Self, Self::Error> {
-        let sources = value.sources;
+        let sources = match find_non_existing(&value.sources) {
+            Some(f) => {
+                let error_message = format!("{f}: No such file or directory (os error 2)");
+                return Err(Box::new(MyError { error_message }))
+            },
+            None => value.sources,
+        };
         let pattern = match value.pattern {
             Some(p) => {
                 let regex = if value.case_insensitive {
@@ -80,13 +96,34 @@ impl TryFrom<Cli> for Config {
                 };
                 match regex {
                     Ok(r) => Some(r),
-                    Err(e) => return Err(Box::new(MyError { error_message: e.to_string() })),
+                    Err(_) => {
+                        let error_message = format!("Invalid --pattern \"{p}\"");
+                        return Err(Box::new(MyError { error_message }))
+                    },
                 }
             }
             None => None,
         };
-        let seed = value.seed;
-        Ok(Config { sources, pattern, seed })
+        let seed = match value.seed {
+            Some(s) => {
+                match parse_u64(&s) {
+                    Ok(r) => Some(r),
+                    Err(_) => {
+                        let error_message = format!("invalid value '{s}' for '--seed <SEED>'");
+                        return Err(Box::new(MyError { error_message }))
+                    },
+                }
+            },
+            None => None
+        };
+        Ok(Config { _sources: sources, _pattern: pattern, _seed: seed })
+    }
+}
+
+fn parse_u64(s: &str) -> MyResult<u64> {
+    match s.parse::<u64>() {
+        Ok(n) => Ok(n),
+        Err(_) => Err(Box::new(MyError { error_message: format!("\"{s}\" is not a valid integer") })),
     }
 }
 
@@ -108,3 +145,23 @@ impl std::fmt::Display for MyError {
 }
 
 impl Error for MyError { }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_u64() {
+        let res = parse_u64("a");
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("\"a\" is not a valid integer"));
+
+        let res = parse_u64("0");
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), 0);
+
+        let res = parse_u64("42");
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), 42);
+    }
+}
