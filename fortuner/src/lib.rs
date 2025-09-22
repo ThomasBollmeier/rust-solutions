@@ -1,8 +1,10 @@
 use std::error::Error;
 use std::fmt::Debug;
+use std::io::BufRead;
 use std::path::Path;
 use clap::Parser;
 use regex::Regex;
+use walkdir::WalkDir;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -53,13 +55,100 @@ impl Cli {
 
 #[derive(Debug)]
 pub struct Config {
-    _sources: Vec<String>,
-    _pattern: Option<Regex>,
-    _seed: Option<u64>,
+    sources: Vec<String>,
+    pattern: Option<Regex>,
+    seed: Option<u64>,
 }
 
 impl Config {
     pub fn run(&self) -> MyResult<()> {
+        match self.pattern {
+            Some(ref regex) => self.find_fortunes(regex)?,
+            None => println!("No pattern"),
+        }
+
+        Ok(())
+    }
+
+    fn find_fortunes(&self, regex: &Regex) -> MyResult<()> {
+        for source in &self.sources {
+            let path = Path::new(source).canonicalize()?;
+            if path.is_dir() {
+                self.find_fortune_in_dir(path.to_str().unwrap(), regex)?;
+            } else if path.is_file() {
+                self.find_fortune_in_file(path.to_str().unwrap(), regex)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn find_fortune_in_dir(&self, dir_path: &str, regex: &Regex) -> MyResult<()> {
+        for entry in WalkDir::new(dir_path) {
+            let entry = entry?;
+            let path = entry.path();
+            let path_str = path.to_str().unwrap();
+            if path_str == dir_path {
+                continue;
+            }
+            if path.is_dir() {
+                self.find_fortune_in_dir(path_str, regex)?;
+            } else if path.is_file() {
+                if path_str.contains(".") {
+                    continue;
+                }
+                self.find_fortune_in_file(path_str, regex)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn find_fortune_in_file(&self, file_path: &str, regex: &Regex) -> MyResult<()> {
+        let reader = match std::fs::File::open(file_path) {
+            Ok(f) => std::io::BufReader::new(f),
+            Err(e) => {
+                let error_message = format!("{}: {}", file_path, e);
+                return Err(Box::new(MyError { error_message }))
+            },
+        };
+
+        let mut record : Vec<String> = Vec::new();
+        let mut match_found = false;
+        let mut record_done = false;
+        let mut file_name_printed = false;
+
+        for line in reader.lines() {
+            let line = line?;
+            if regex.is_match(&line) {
+                match_found = true;
+            }
+            if line == "%" {
+                record_done = true;
+            }
+            record.push(line);
+            if record_done {
+                if match_found {
+                    if !file_name_printed {
+                        let path = Path::new(file_path);
+                        if let Some(name) = path.file_name() {
+                            eprintln!("({})", name.to_str().unwrap());
+                            eprintln!("%");
+                        }
+                        file_name_printed = true;
+                    }
+
+                    for rec_line in &record {
+                        println!("{}", rec_line);
+                    }
+                }
+                record.clear();
+                match_found = false;
+                record_done = false;
+            }
+
+        }
+
         Ok(())
     }
 }
@@ -116,7 +205,7 @@ impl TryFrom<Cli> for Config {
             },
             None => None
         };
-        Ok(Config { _sources: sources, _pattern: pattern, _seed: seed })
+        Ok(Config { sources, pattern, seed })
     }
 }
 
