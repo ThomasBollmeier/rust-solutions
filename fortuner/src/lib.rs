@@ -3,8 +3,32 @@ use std::fmt::Debug;
 use std::io::BufRead;
 use std::path::Path;
 use clap::Parser;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use regex::Regex;
 use walkdir::WalkDir;
+
+pub type MyResult<T> = Result<T, Box<dyn Error>>;
+
+pub struct MyError {
+    error_message: String,
+}
+
+impl Debug for MyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.error_message)
+    }
+}
+
+impl std::fmt::Display for MyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.error_message)
+    }
+}
+
+impl Error for MyError { }
+
+type Record = Vec<String>;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -64,10 +88,121 @@ impl Config {
     pub fn run(&self) -> MyResult<()> {
         match self.pattern {
             Some(ref regex) => self.find_fortunes(regex)?,
-            None => println!("No pattern"),
+            None => {
+                let record = self.select_fortune()?;
+                if !record.is_empty() {
+                    for line in record {
+                        println!("{}", line);
+                    }
+                } else {
+                    println!("No fortunes found");
+                }
+            }
         }
 
         Ok(())
+    }
+
+    fn select_fortune(&self) -> MyResult<Record> {
+        let mut records = Vec::new();
+
+        let mut file_paths = self.read_file_paths()?;
+        file_paths.sort();
+
+        dbg!(&file_paths);
+
+        for file_path in file_paths {
+            records.extend(self.read_fortunes_in_file(&file_path)?);
+        }
+
+        if records.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Choose a random record
+        let selected_idx= match self.seed {
+            Some(seed) => {
+                let mut random = StdRng::seed_from_u64(seed);
+                random.gen_range(0..records.len())
+            },
+            None => {
+                let mut random = rand::thread_rng();
+                random.gen_range(0..records.len())
+            }
+        };
+
+        Ok(records[selected_idx].clone())
+    }
+
+    fn read_file_paths(&self) -> MyResult<Vec<String>> {
+        let mut ret = Vec::new();
+
+        for source in &self.sources {
+            let path = Path::new(source).canonicalize()?;
+            if path.is_dir() {
+                ret.extend(self.read_file_paths_in_dir(path.to_str().unwrap())?);
+            } else if path.is_file() {
+                ret.push(path.to_str().unwrap().to_string());
+            }
+        }
+
+        Ok(ret)
+    }
+
+    fn read_file_paths_in_dir(&self, dir_path: &str) -> MyResult<Vec<String>> {
+        let mut ret = Vec::new();
+
+        for entry in WalkDir::new(dir_path) {
+            let entry = entry?;
+            let path = entry.path();
+            let path_str = path.to_str().unwrap();
+            if path_str == dir_path {
+                continue;
+            }
+            if path.is_dir() {
+                ret.extend(self.read_file_paths_in_dir(path_str)?);
+            } else if path.is_file() {
+                if path_str.contains(".") {
+                    continue;
+                }
+                ret.push(path_str.to_string());
+            }
+        }
+
+        Ok(ret)
+    }
+
+    fn read_fortunes_in_file(&self, file_path: &str) -> MyResult<Vec<Record>> {
+        let reader = self.create_reader(file_path)?;
+
+        let mut records : Vec<Record> = Vec::new();
+        let mut record : Record = Vec::new();
+
+        for line in reader.lines() {
+            let line = line?;
+            if line == "%" {
+                records.push(record);
+                record = Vec::new();
+            } else {
+                record.push(line);
+            }
+        }
+        if !record.is_empty() {
+            records.push(record);
+        }
+
+        Ok(records)
+    }
+
+    fn create_reader(&self, file_path: &str) -> MyResult<Box<dyn BufRead>> {
+        let reader = match std::fs::File::open(file_path) {
+            Ok(f) => std::io::BufReader::new(f),
+            Err(e) => {
+                let error_message = format!("{}: {}", file_path, e);
+                return Err(Box::new(MyError { error_message }))
+            },
+        };
+        Ok(Box::new(reader))
     }
 
     fn find_fortunes(&self, regex: &Regex) -> MyResult<()> {
@@ -105,13 +240,7 @@ impl Config {
     }
 
     fn find_fortune_in_file(&self, file_path: &str, regex: &Regex) -> MyResult<()> {
-        let reader = match std::fs::File::open(file_path) {
-            Ok(f) => std::io::BufReader::new(f),
-            Err(e) => {
-                let error_message = format!("{}: {}", file_path, e);
-                return Err(Box::new(MyError { error_message }))
-            },
-        };
+        let reader = self.create_reader(file_path)?;
 
         let mut record : Vec<String> = Vec::new();
         let mut match_found = false;
@@ -216,24 +345,6 @@ fn parse_u64(s: &str) -> MyResult<u64> {
     }
 }
 
-pub type MyResult<T> = Result<T, Box<dyn Error>>;
-pub struct MyError {
-    error_message: String,
-}
-
-impl Debug for MyError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.error_message)
-    }
-}
-
-impl std::fmt::Display for MyError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.error_message)
-    }
-}
-
-impl Error for MyError { }
 
 #[cfg(test)]
 mod tests {
